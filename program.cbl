@@ -8,11 +8,16 @@
  OBJECT-COMPUTER. LINUX.
  INPUT-OUTPUT SECTION.
  FILE-CONTROL.
-     SELECT EMPLOYEE-FILE
-         ASSIGN TO "employees_input.dat"
+     SELECT FULLTIME-FILE
+         ASSIGN TO "employees_fulltime.dat"
          ORGANIZATION IS LINE SEQUENTIAL
          ACCESS MODE IS SEQUENTIAL
-         FILE STATUS IS WS-EMP-STATUS.
+         FILE STATUS IS WS-FT-STATUS.
+     SELECT PARTTIME-FILE
+         ASSIGN TO "employees_parttime.dat"
+         ORGANIZATION IS LINE SEQUENTIAL
+         ACCESS MODE IS SEQUENTIAL
+         FILE STATUS IS WS-PT-STATUS.
      SELECT PAYSLIP-FILE
          ASSIGN TO "payslips_output.dat"
          ORGANIZATION IS LINE SEQUENTIAL
@@ -32,15 +37,13 @@
  DATA DIVISION.
  FILE SECTION.
 
- FD EMPLOYEE-FILE
+ FD FULLTIME-FILE
      RECORD CONTAINS 37 CHARACTERS.
- 01 EMPLOYEE-RECORD.
-     05 EMP-ID              PIC 9(6).
-     05 EMP-ID-X            REDEFINES EMP-ID PIC X(6).
-     05 EMP-NAME            PIC X(20).
-     05 EMP-CATEGORY        PIC X(1).
-     05 EMP-HOURS-WORKED    PIC 9(3)V9(1).
-     05 EMP-HOURLY-RATE     PIC 9(4)V9(2).
+ 01 FT-RECORD               PIC X(37).
+
+ FD PARTTIME-FILE
+     RECORD CONTAINS 37 CHARACTERS.
+ 01 PT-RECORD               PIC X(37).
 
  FD PAYSLIP-FILE
      RECORD CONTAINS 123 CHARACTERS.
@@ -57,9 +60,12 @@
  WORKING-STORAGE SECTION.
 
  01 WS-FILE-STATUS.
-     05 WS-EMP-STATUS       PIC X(2).
-         88 EMP-FILE-OK     VALUE "00".
-         88 EMP-EOF         VALUE "10".
+     05 WS-FT-STATUS        PIC X(2).
+         88 FT-FILE-OK      VALUE "00".
+         88 FT-EOF          VALUE "10".
+     05 WS-PT-STATUS        PIC X(2).
+         88 PT-FILE-OK      VALUE "00".
+         88 PT-EOF          VALUE "10".
      05 WS-PAY-STATUS       PIC X(2).
          88 PAY-FILE-OK     VALUE "00".
      05 WS-REJ-STATUS       PIC X(2).
@@ -71,6 +77,18 @@
      05 WS-END-OF-FILE      PIC X(1) VALUE "N".
          88 END-OF-FILE     VALUE "Y".
          88 NOT-END-OF-FILE VALUE "N".
+
+ 01 WS-CURRENT-FILE         PIC X(2) VALUE "FT".
+     88 PROCESSING-FULLTIME VALUE "FT".
+     88 PROCESSING-PARTTIME VALUE "PT".
+
+ 01 EMPLOYEE-RECORD.
+     05 EMP-ID              PIC 9(6).
+     05 EMP-ID-X            REDEFINES EMP-ID PIC X(6).
+     05 EMP-NAME            PIC X(20).
+     05 EMP-CATEGORY        PIC X(1).
+     05 EMP-HOURS-WORKED    PIC 9(3)V9(1).
+     05 EMP-HOURLY-RATE     PIC 9(4)V9(2).
 
  01 WS-VALIDATION.
      05 WS-RECORD-VALID     PIC X(1) VALUE "Y".
@@ -105,6 +123,8 @@
      05 WS-TOTAL-REJECTED   PIC 9(6) VALUE ZEROES.
      05 WS-TOTAL-PAYROLL    PIC 9(9)V9(2) VALUE ZEROES.
      05 WS-TOTAL-NET        PIC 9(9)V9(2) VALUE ZEROES.
+     05 WS-FULLTIME-COUNT   PIC 9(6) VALUE ZEROES.
+     05 WS-PARTTIME-COUNT   PIC 9(6) VALUE ZEROES.
 
  01 WS-CAT-SUBTOTALS.
      05 WS-CAT-A-COUNT      PIC 9(6) VALUE ZEROES.
@@ -211,6 +231,16 @@
          VALUE "EMPLOYEES REJECTED          : ".
      05 WS-TOT-REJ-DISP     PIC ZZ,ZZZ,ZZ9.
 
+ 01 WS-FT-COUNT-DISP.
+     05 FILLER              PIC X(30)
+         VALUE "  FROM FULL-TIME FILE       : ".
+     05 WS-TOT-FT-DISP      PIC ZZ,ZZZ,ZZ9.
+
+ 01 WS-PT-COUNT-DISP.
+     05 FILLER              PIC X(30)
+         VALUE "  FROM PART-TIME FILE       : ".
+     05 WS-TOT-PT-DISP      PIC ZZ,ZZZ,ZZ9.
+
  01 WS-PAYROLL-DISP.
      05 FILLER              PIC X(30)
          VALUE "TOTAL GROSS PAYROLL         : ".
@@ -259,52 +289,80 @@
 
  0000-MAIN-CONTROL.
      PERFORM 1000-INITIALIZATION
+     MOVE "FT" TO WS-CURRENT-FILE
+     DISPLAY "--- PROCESSING FULL-TIME EMPLOYEES ---"
+     PERFORM 1100-READ-EMPLOYEE
      PERFORM 2000-PROCESS-EMPLOYEES
          UNTIL END-OF-FILE
+     CLOSE FULLTIME-FILE
+     MOVE "N" TO WS-END-OF-FILE
+     MOVE "PT" TO WS-CURRENT-FILE
+     DISPLAY "--- PROCESSING PART-TIME EMPLOYEES ---"
+     PERFORM 1100-READ-EMPLOYEE
+     PERFORM 2000-PROCESS-EMPLOYEES
+         UNTIL END-OF-FILE
+     CLOSE PARTTIME-FILE
      PERFORM 3000-FINALIZATION
      STOP RUN.
 
  1000-INITIALIZATION.
-     OPEN INPUT EMPLOYEE-FILE
-     IF NOT EMP-FILE-OK
-         DISPLAY "ERROR: Cannot open employees_input.dat - Status: "
-             WS-EMP-STATUS
+     OPEN INPUT FULLTIME-FILE
+     IF NOT FT-FILE-OK
+         DISPLAY "ERROR: Cannot open employees_fulltime.dat"
+             " - Status: " WS-FT-STATUS
+         STOP RUN
+     END-IF
+     OPEN INPUT PARTTIME-FILE
+     IF NOT PT-FILE-OK
+         DISPLAY "ERROR: Cannot open employees_parttime.dat"
+             " - Status: " WS-PT-STATUS
          STOP RUN
      END-IF
      OPEN OUTPUT PAYSLIP-FILE
      IF NOT PAY-FILE-OK
-         DISPLAY "ERROR: Cannot open payslips_output.dat - Status: "
-             WS-PAY-STATUS
+         DISPLAY "ERROR: Cannot open payslips_output.dat"
+             " - Status: " WS-PAY-STATUS
          STOP RUN
      END-IF
      OPEN OUTPUT REJECT-FILE
      IF NOT REJ-FILE-OK
-         DISPLAY "ERROR: Cannot open rejects_output.dat - Status: "
-             WS-REJ-STATUS
+         DISPLAY "ERROR: Cannot open rejects_output.dat"
+             " - Status: " WS-REJ-STATUS
          STOP RUN
      END-IF
      OPEN OUTPUT REPORT-FILE
      IF NOT RPT-FILE-OK
-         DISPLAY "ERROR: Cannot open report_output.dat - Status: "
-             WS-RPT-STATUS
+         DISPLAY "ERROR: Cannot open report_output.dat"
+             " - Status: " WS-RPT-STATUS
          STOP RUN
      END-IF
      DISPLAY WS-SEPARATOR
      DISPLAY WS-HEADER-LINE
      DISPLAY WS-SEPARATOR
      DISPLAY WS-COL-HEADER
-     DISPLAY WS-SEPARATOR
-     PERFORM 1100-READ-EMPLOYEE.
+     DISPLAY WS-SEPARATOR.
 
  1100-READ-EMPLOYEE.
-     READ EMPLOYEE-FILE INTO EMPLOYEE-RECORD
-     IF EMP-EOF
-         MOVE "Y" TO WS-END-OF-FILE
+     IF PROCESSING-FULLTIME
+         READ FULLTIME-FILE INTO EMPLOYEE-RECORD
+         EVALUATE TRUE
+             WHEN FT-EOF
+                 MOVE "Y" TO WS-END-OF-FILE
+             WHEN NOT FT-FILE-OK
+                 DISPLAY "ERROR: Read error FT - Status: "
+                     WS-FT-STATUS
+                 MOVE "Y" TO WS-END-OF-FILE
+         END-EVALUATE
      ELSE
-         IF NOT EMP-FILE-OK
-             DISPLAY "ERROR: Read error - Status: " WS-EMP-STATUS
-             MOVE "Y" TO WS-END-OF-FILE
-         END-IF
+         READ PARTTIME-FILE INTO EMPLOYEE-RECORD
+         EVALUATE TRUE
+             WHEN PT-EOF
+                 MOVE "Y" TO WS-END-OF-FILE
+             WHEN NOT PT-FILE-OK
+                 DISPLAY "ERROR: Read error PT - Status: "
+                     WS-PT-STATUS
+                 MOVE "Y" TO WS-END-OF-FILE
+         END-EVALUATE
      END-IF.
 
  2000-PROCESS-EMPLOYEES.
@@ -315,6 +373,11 @@
          PERFORM 2200-WRITE-PAYSLIP
          PERFORM 2300-DISPLAY-EMPLOYEE
          ADD 1 TO WS-TOTAL-EMPLOYEES
+         IF PROCESSING-FULLTIME
+             ADD 1 TO WS-FULLTIME-COUNT
+         ELSE
+             ADD 1 TO WS-PARTTIME-COUNT
+         END-IF
          ADD WS-GROSS-SALARY TO WS-TOTAL-PAYROLL
          ADD WS-NET-SALARY   TO WS-TOTAL-NET
          PERFORM 2400-ACCUMULATE-CATEGORY
@@ -461,6 +524,10 @@
      DISPLAY WS-SEPARATOR
      MOVE WS-TOTAL-EMPLOYEES TO WS-TOT-EMP-DISP
      DISPLAY WS-TOTAL-DISP
+     MOVE WS-FULLTIME-COUNT  TO WS-TOT-FT-DISP
+     DISPLAY WS-FT-COUNT-DISP
+     MOVE WS-PARTTIME-COUNT  TO WS-TOT-PT-DISP
+     DISPLAY WS-PT-COUNT-DISP
      MOVE WS-TOTAL-REJECTED  TO WS-TOT-REJ-DISP
      DISPLAY WS-REJECTED-DISP
      MOVE WS-TOTAL-PAYROLL   TO WS-TOT-PAY-DISP
@@ -475,7 +542,6 @@
          UNTIL WS-CAT-IDX > 3
      DISPLAY WS-SEPARATOR
      PERFORM 3300-WRITE-REPORT-FILE
-     CLOSE EMPLOYEE-FILE
      CLOSE PAYSLIP-FILE
      CLOSE REJECT-FILE
      CLOSE REPORT-FILE
